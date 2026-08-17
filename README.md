@@ -25,7 +25,8 @@ The curriculum follows the target repository rather than a generic tutorial:
 - 28 complete concept lessons across eight modules
 - Ruby-to-TypeScript code comparisons
 - A learn → watch → do rhythm with official documentation and curated video sources
-- Persistent in-lesson code scratchpads and browser workbench links
+- 28 lesson-specific guided workshops with scenarios, numbered build steps, progressive hints, finish-line checks and stretch tasks
+- Persistent in-lesson code workbenches, workshop checklists and browser environment links
 - Instant quiz feedback with explanations
 - “I’m lost / about right / too easy” course adaptation
 - Individual and module-level completion controls
@@ -57,7 +58,7 @@ The `main` branch deploys automatically to GitHub Pages.
 
 ## How progress works
 
-Progress, quiz answers, code scratchpads, learning pace and confidence feedback are saved only in the browser on the current device. No account or backend is required. Use **Reset progress** in the sidebar to start again.
+Progress, quiz answers, workshop code, finish-line checks, learning pace and confidence feedback are saved only in the browser on the current device. No account or backend is required. Use **Reset progress** in the sidebar to start again.
 
 ## Built with
 

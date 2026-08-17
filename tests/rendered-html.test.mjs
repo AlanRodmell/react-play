@@ -46,7 +46,12 @@ test("ships durable progress and a structured production curriculum", async () =
   assert.match(page, /React Testing Library/);
   assert.match(page, /Synchronizing with Effects/);
   assert.match(page, /ReactConfOfficial/);
-  assert.match(page, /Build the proof, not just the memory/);
+  assert.match(page, /GUIDED WORKSHOP/);
+  assert.match(page, /Build it step by step/);
+  assert.match(page, /Need a nudge/);
+  assert.match(page, /labChecks/);
+  assert.match(page, /Turn invoice data into a paid-invoice list/);
+  assert.match(page, /Ship a payment-status filter end to end/);
   assert.match(page, /Code scratchpad/);
   assert.match(layout, /React Bridge/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

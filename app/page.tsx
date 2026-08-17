@@ -6,6 +6,15 @@ type ModuleId = "bridge" | "react" | "hooks" | "routing" | "forms" | "query" | "
 type Confidence = "lost" | "steady" | "solid";
 type Track = "fast" | "deep";
 type Resource = { kind: "Read" | "Watch" | "Practise"; title: string; url: string; note: string };
+type Lab = {
+  title: string;
+  minutes: number;
+  scenario: string;
+  steps: string[];
+  checks: string[];
+  hints: string[];
+  stretch: string;
+};
 
 type Quiz = {
   question: string;
@@ -453,19 +462,401 @@ function resourcesFor(lesson: Lesson): Resource[] {
   ];
 }
 
-function labBrief(lesson: Lesson) {
-  const actions: Record<ModuleId, string> = {
-    bridge: "Model a small invoice response, then deliberately introduce two type errors and fix them without using any.",
-    react: "Build the smallest invoice UI that demonstrates this concept. Add one interaction and one empty state.",
-    hooks: "Add a render counter and console logs. Predict what runs, interact with it, then explain any surprise in one sentence.",
-    routing: "Put a status filter in the URL. Prove it survives refresh and that browser Back restores the previous filter.",
-    forms: "Build one slice of a payment-allocation form. Include a valid case, an invalid case and a reset path.",
-    query: "Mock a delayed request and show intentional pending, success, empty and error states before adding the happy path.",
-    architecture: "Start in one component, then extract only the behaviour named in this lesson. Trace one invoice field across each boundary.",
-    testing: "Write a failing behaviour test first, make the smallest implementation pass, then remove one brittle implementation detail.",
-  };
-  return actions[lesson.module];
-}
+const labs: Record<string, Lab> = {
+  "collections-callbacks": {
+    title: "Turn invoice data into a paid-invoice list", minutes: 18,
+    scenario: "A page receives six invoices from an API. Product wants a compact list containing only paid invoice numbers, ordered exactly as received.",
+    steps: [
+      "Create an invoices array with id, number, customerName and paid fields. Include at least two unpaid invoices.",
+      "Use filter to produce paidInvoices. Log it and confirm the original array is unchanged.",
+      "Use map on paidInvoices to produce strings in the form “INV-1042 — Acme Ltd”.",
+      "Render those strings as list items. Use the invoice id—not the array index—as the React key.",
+      "Change every invoice to unpaid and add an explicit “No paid invoices” empty state.",
+    ],
+    checks: ["Only paid invoices appear", "The source array is not mutated", "Keys use stable invoice IDs", "The empty state is visible when no rows match"],
+    hints: ["Build the transformed value above the return statement so you can inspect it.", "The empty state can be a conditional before the map or a ternary in JSX."],
+    stretch: "Add a minimumTotal filter without combining filtering and rendering into one unreadable expression.",
+  },
+  "types-inference": {
+    title: "Make an invoice status impossible to misspell", minutes: 22,
+    scenario: "A typo such as “paied” currently reaches the UI. Introduce types at the boundary so the compiler catches it before runtime.",
+    steps: [
+      "Define an InvoiceStatus union containing draft, sent, paid and void.",
+      "Define an Invoice type with id, number, status and optional paidAt fields.",
+      "Write formatStatus(invoice) and use narrowing so paidAt is formatted only when it exists.",
+      "Create two valid invoices, then deliberately assign status: “paied” and read the compiler error before fixing it.",
+      "Replace one annotation the compiler can infer and confirm type safety remains.",
+    ],
+    checks: ["Invalid statuses fail type checking", "No any is used", "Optional paidAt is handled safely", "Local values rely on inference where possible"],
+    hints: ["A string-literal union looks like `\"draft\" | \"paid\"`.", "Optional properties use `?`, but reading them still requires a check."],
+    stretch: "Replace the model with a discriminated union where paid invoices must have paidAt and other invoices cannot have it.",
+  },
+  "async-modules": {
+    title: "Build a service that fails honestly", minutes: 24,
+    scenario: "The invoice page needs a service function that returns typed data and never disguises a failed HTTP response as success.",
+    steps: [
+      "Create an invoiceService module exporting an async getInvoice(id) function.",
+      "Use a temporary mock Promise with an 800ms delay before introducing fetch.",
+      "Model success and failure branches. Throw an Error when the response is not OK.",
+      "Call the service from a small handler with try/catch and display either the number or a useful error message.",
+      "Force the mock to reject and confirm the error branch—not an unhandled rejection—runs.",
+    ],
+    checks: ["The function returns a Promise of typed data", "Non-OK responses throw", "The caller handles rejection", "Loading is visible during the delay"],
+    hints: ["An async function automatically wraps returned values in a Promise.", "Check response.ok before calling response.json()."],
+    stretch: "Accept an AbortSignal and demonstrate cancelling the request when the user clicks Cancel.",
+  },
+  "components-props": {
+    title: "Decompose an invoice row by responsibility", minutes: 22,
+    scenario: "An invoice table row has become hard to scan. Extract useful components without turning every span into its own abstraction.",
+    steps: [
+      "Start with one InvoiceRow rendering number, customer, total and status in a single component.",
+      "Extract a typed InvoiceBadge whose only prop is status.",
+      "Add an onOpen(id) callback prop to InvoiceRow and call it from a clearly labelled button.",
+      "Render three rows from an InvoiceList parent and keep the invoice collection owned by the parent.",
+      "Read each component aloud: confirm its name, props and responsibility form a coherent sentence.",
+    ],
+    checks: ["Every component is a function", "Props have explicit boundary types", "Children do not mutate props", "The open action reports the correct invoice ID"],
+    hints: ["Pass the function reference or an arrow handler; do not call it during render.", "If a component has no meaningful independent responsibility, leave the markup where it is."],
+    stretch: "Accept a renderable actions prop so InvoiceRow remains independent of page-specific buttons.",
+  },
+  "render-state": {
+    title: "Build a filter without duplicate state", minutes: 25,
+    scenario: "Users need to switch an invoice list between all, draft and paid. The filtered rows must never drift from the chosen status.",
+    steps: [
+      "Render a fixed invoice array and confirm all rows initially appear.",
+      "Add one status state value with an all default and three filter buttons.",
+      "Derive visibleInvoices during render from invoices and status; do not create filteredInvoices state.",
+      "Log status immediately after its setter, predict the value, and explain the render snapshot you observe.",
+      "Add a result count derived from visibleInvoices and test every filter twice.",
+    ],
+    checks: ["Only the selected status is stored", "Visible rows are derived", "The source array is unchanged", "Count and rows always agree"],
+    hints: ["All is a UI filter value, not necessarily an API invoice status.", "State setters schedule another render; current event handlers retain their snapshot."],
+    stretch: "Add a functional state update that cycles all → draft → paid → all.",
+  },
+  "events-lists": {
+    title: "Create an accessible invoice results panel", minutes: 22,
+    scenario: "The page needs row actions, loading, empty and populated states without unstable list behaviour.",
+    steps: [
+      "Model a view status of loading, ready or error and render an explicit branch for each.",
+      "In the ready branch, render invoices with stable id keys and an Open invoice button per row.",
+      "Pass the selected invoice id to a parent-owned handler and show it in a details panel.",
+      "Test the ready branch with an empty array and display a helpful empty message.",
+      "Reorder the array and confirm the selected row keeps the correct identity.",
+    ],
+    checks: ["All four visual states are intentional", "Buttons have accessible names", "Row keys are stable", "Reordering does not swap row identity"],
+    hints: ["Handle loading/error before mapping the collection.", "A key belongs on the outer element returned by map."],
+    stretch: "Add a dismissible error state whose retry callback is supplied through props.",
+  },
+  effects: {
+    title: "Subscribe, clean up, and prove it", minutes: 28,
+    scenario: "A connectivity banner must reflect the browser’s online status and stop listening when it leaves the screen.",
+    steps: [
+      "Create an OnlineStatus component with state initialised from navigator.onLine.",
+      "In one effect, subscribe to the browser online and offline events and update state from named handlers.",
+      "Return cleanup that removes both listeners using the same function references.",
+      "Add console messages for setup and cleanup, then toggle the component on and off to inspect the sequence.",
+      "Run in Strict Mode, observe the extra development setup/cleanup cycle, and explain why the final behaviour is still correct.",
+    ],
+    checks: ["An external system justifies the effect", "Every subscription is cleaned up", "Dependencies are complete", "Remounting does not duplicate listeners"],
+    hints: ["removeEventListener needs the original handler reference.", "The effect needs no changing component values, so an empty dependency array is appropriate here."],
+    stretch: "Extract useOnlineStatus and consume it from two components; verify each subscription’s lifecycle.",
+  },
+  refs: {
+    title: "Focus an invalid field without extra renders", minutes: 20,
+    scenario: "Submitting an empty payment reference should move focus to the input while a non-visual submit counter proves refs do not render.",
+    steps: [
+      "Create a labelled payment-reference input and attach an inputRef.",
+      "Create a submitCount ref starting at zero and a separate render counter visible only in the console.",
+      "On submit, increment submitCount. If the value is empty, focus the input through inputRef.current.",
+      "Log the submit count and confirm the screen does not re-render merely because the ref changed.",
+      "Add state for a visible error message and compare why this value cannot live only in a ref.",
+    ],
+    checks: ["The empty input receives focus", "Ref changes do not schedule renders", "Visible error uses state", "The input ref is null-safe"],
+    hints: ["Use optional chaining before calling focus.", "A ref is a stable container; the value is in its current property."],
+    stretch: "Store the previous valid reference in a ref and offer a Restore previous button.",
+  },
+  memoisation: {
+    title: "Measure before memoising invoice totals", minutes: 26,
+    scenario: "A totals calculation is suspected of slowing a searchable invoice page. Prove when it runs before adding a cache.",
+    steps: [
+      "Create 1,000 mock invoices and a calculateTotals function that logs each invocation.",
+      "Add unrelated search-input state and observe the calculation run while typing.",
+      "Wrap only the totals calculation in useMemo with invoices as its dependency.",
+      "Confirm typing no longer recalculates totals, then replace invoices and confirm recalculation does happen.",
+      "Add a memoised child callback only if a memoised child observes its identity; record why it is or is not useful.",
+    ],
+    checks: ["The baseline was measured first", "Dependencies match calculation inputs", "Changing invoices invalidates the cache", "No decorative memoisation remains"],
+    hints: ["useMemo stores a value; useCallback stores a function reference.", "If invoices is recreated on every render, its identity defeats the memo."],
+    stretch: "Use the React Profiler to compare commits before and after, then remove the memo if the benefit is negligible.",
+  },
+  "layout-mounted": {
+    title: "Measure a panel and cancel late async work", minutes: 30,
+    scenario: "A summary popover must position before paint, while a delayed request must not update a panel after it closes.",
+    steps: [
+      "Render a toggleable summary panel with a DOM ref and visible measured height.",
+      "Measure getBoundingClientRect in useEffect first and watch for a visible position correction.",
+      "Move only that measurement to useLayoutEffect and compare the paint behaviour.",
+      "Start a delayed mock request when the panel opens and return cleanup that cancels it with AbortController.",
+      "Close the panel before the request finishes and confirm no late state update or stale success UI appears.",
+    ],
+    checks: ["Layout work has a user-visible reason", "Normal effects remain the default", "Async work is cancelled", "Opening and closing repeatedly stays clean"],
+    hints: ["Pass controller.signal to the async function and call controller.abort in cleanup.", "Do not catch an abort and present it as a user-facing failure."],
+    stretch: "Replace cancellation with a mounted guard, compare the two approaches, and write which communicates intent better.",
+  },
+  "router-navigation": {
+    title: "Build invoice list and detail routes", minutes: 25,
+    scenario: "Users must move from /invoices to /invoices/:invoiceId and return without a full page reload.",
+    steps: [
+      "Install or open a React Router workbench and create routes for /invoices and /invoices/:invoiceId.",
+      "Render an InvoiceList at the list route with two invoice buttons or links.",
+      "Navigate to the selected detail route and read invoiceId from route params.",
+      "Add a Back to invoices link and a not-found message for unknown IDs.",
+      "Use the browser history buttons and confirm route state follows the URL.",
+    ],
+    checks: ["Navigation does not reload the document", "The detail ID comes from the route", "Unknown IDs are handled", "Back/Forward produce expected pages"],
+    hints: ["A path parameter identifies a resource; a query parameter usually modifies a view.", "Prefer Link for ordinary navigation and useNavigate after imperative events."],
+    stretch: "Nest the detail route under an invoices layout containing a shared heading and outlet.",
+  },
+  "url-state": {
+    title: "Make invoice filters shareable", minutes: 28,
+    scenario: "A colleague should be able to copy a filtered invoice URL, send it to you, and reproduce the same view.",
+    steps: [
+      "Start from /invoices and read status from useSearchParams with all as the safe default.",
+      "Render all, draft and paid controls whose selected state comes from the URL—not separate useState.",
+      "Update only the status parameter while preserving unrelated parameters.",
+      "Refresh on ?status=paid and confirm the paid filter remains selected.",
+      "Make three filter changes, then use Back and Forward to inspect your push-versus-replace choice.",
+    ],
+    checks: ["The URL is the single filter source", "Refresh preserves the view", "Unknown values fall back safely", "History behaviour is intentional"],
+    hints: ["URL values are strings from an untrusted boundary; parse them into your Status type.", "Clone or use the callback form when updating existing search parameters."],
+    stretch: "Add sort and page parameters, then create one parser/serializer pair for the complete filter model.",
+  },
+  "navigation-blocking": {
+    title: "Protect an unsaved payment draft", minutes: 25,
+    scenario: "A user who has edited a payment must be warned before navigating away, but untouched or saved forms must not nag.",
+    steps: [
+      "Create a two-field payment form and track whether its values differ meaningfully from defaults.",
+      "Connect isDirty to the router’s blocker and render your own confirmation panel when navigation is blocked.",
+      "Implement Stay and Leave actions using the blocker API.",
+      "After a successful mock save, reset the form baseline and confirm navigation proceeds silently.",
+      "Test untouched, edited, reverted and saved cases rather than only the obvious dirty case.",
+    ],
+    checks: ["Untouched forms never block", "Real edits do block", "Reverted/saved forms release the block", "The dialog offers explicit stay/leave actions"],
+    hints: ["Dirty should compare with a known baseline, not mean merely that the form mounted.", "In-app blocking and closing the browser tab are separate concerns."],
+    stretch: "Add beforeunload protection and document the browser limitations you observe.",
+  },
+  "rhf-basics": {
+    title: "Build a typed payment form lifecycle", minutes: 30,
+    scenario: "Capture a payment reference and amount with clear validation, submission feedback and reset behaviour.",
+    steps: [
+      "Define PaymentValues with reference and amount, then initialise useForm with explicit defaultValues.",
+      "Register both labelled inputs and add required plus positive-number rules.",
+      "Display each error beside its field and connect it with aria-describedby.",
+      "Submit through handleSubmit to a delayed mock save and disable the button while isSubmitting.",
+      "On success show Saved, reset to the submitted values, and inspect isDirty before and after.",
+    ],
+    checks: ["Form values are typed", "Invalid data never reaches save", "Pending state prevents duplicate submits", "Successful reset clears dirty state"],
+    hints: ["valueAsNumber can convert a numeric input before validation.", "handleSubmit coordinates validation; your callback still owns the save."],
+    stretch: "Add a server-style duplicate-reference error with setError and focus the affected field.",
+  },
+  controller: {
+    title: "Adapt a custom customer picker", minutes: 28,
+    scenario: "The design system’s CustomerSelect uses value/onChange and cannot be registered like a native select.",
+    steps: [
+      "Create CustomerSelect with value, onChange, onBlur, options and error props.",
+      "Build it as a controlled component first and verify its contract independently.",
+      "Wrap it in Controller with name customerId and pass the render field contract into the picker.",
+      "Add a required rule and display fieldState.error through the component’s error prop.",
+      "Submit once with no customer and once with a valid customer; inspect the resulting form values.",
+    ],
+    checks: ["Value flows from the form", "Changes flow back through field.onChange", "Blur is forwarded", "The field is registered only once"],
+    hints: ["Start with `{ field, fieldState }` in Controller’s render callback.", "Do not also spread register onto a controlled field."],
+    stretch: "Change CustomerSelect to return a Customer object, while the submitted form retains only customerId.",
+  },
+  "schema-validation": {
+    title: "Encode payment business rules in one schema", minutes: 30,
+    scenario: "A payment amount must be positive, cannot exceed the invoice balance, and needs a reference for manual payments.",
+    steps: [
+      "Define a schema for method, reference, amount and invoiceBalance, then infer the TypeScript type from it if supported.",
+      "Connect the schema through the appropriate React Hook Form resolver.",
+      "Add field rules for required/positive values and a cross-field rule for amount <= invoiceBalance.",
+      "Make reference conditional on method === manual and attach the error to the reference path.",
+      "Exercise at least four invalid combinations before submitting a valid payment.",
+    ],
+    checks: ["Parsing and validation are centralised", "Cross-field errors point to useful fields", "The form type matches parsed output", "Valid data reaches submit unchanged"],
+    hints: ["Cross-field validation receives the whole object, not a single input.", "The repo may use Yup or Zod; match its resolver and installed version."],
+    stretch: "Transform a pounds string into integer pence at the schema boundary and test rounding explicitly.",
+  },
+  "field-arrays": {
+    title: "Allocate one payment across invoices", minutes: 35,
+    scenario: "A payment can be split across a dynamic set of invoice allocations whose total cannot exceed the payment amount.",
+    steps: [
+      "Define allocations as an array of invoiceId and amount and provide one complete default row.",
+      "Use useFieldArray to render rows keyed by field.id with registered nested paths.",
+      "Add Append and Remove controls; prevent removing the final required row.",
+      "Display a live allocated total with useWatch and reject a total above the payment amount.",
+      "Append three rows, remove the middle one, and confirm the remaining input values stay attached to the correct rows.",
+    ],
+    checks: ["Rows use field.id keys", "Append/remove preserve row identity", "Array-level totals are validated", "Submitted data has the expected nested shape"],
+    hints: ["field.id is rendering identity; invoiceId is domain data.", "Register a nested path such as `allocations.${index}.amount`."],
+    stretch: "Prevent selecting the same invoice twice and move focus to the newly appended row.",
+  },
+  "query-model": {
+    title: "Render the complete server-state lifecycle", minutes: 30,
+    scenario: "An invoice list must communicate pending, error, empty and success states while React Query owns the remote cache.",
+    steps: [
+      "Create a QueryClientProvider and a mock listInvoices service with an intentional delay.",
+      "Call useQuery with an invoices list key and the service as queryFn.",
+      "Render distinct pending, error, empty and populated branches without copying data into useState.",
+      "Open React Query Devtools if available and observe fresh, stale and fetching states.",
+      "Unmount and remount the list within staleTime and record whether the service runs again.",
+    ],
+    checks: ["Remote data remains query-owned", "Every visual state is explicit", "The query function returns or throws", "Cache reuse is observed rather than guessed"],
+    hints: ["Start with one early return per state.", "Status names differ by React Query version; inspect the repo package version."],
+    stretch: "Tune staleTime and refetchOnWindowFocus, then explain the user-facing trade-off.",
+  },
+  "query-keys": {
+    title: "Design keys that survive feature growth", minutes: 26,
+    scenario: "Invoice list caches currently collide because status and customer filters are missing from their keys.",
+    steps: [
+      "Write an invoiceKeys factory with all, lists, list(filters) and detail(id) levels using as const.",
+      "Run two list queries with different status filters and inspect them as separate cache entries.",
+      "Change a filter and confirm the query function receives inputs represented in the key.",
+      "Invalidate invoiceKeys.lists() and observe which queries become stale.",
+      "Invalidate one exact filtered list and compare the narrower effect.",
+    ],
+    checks: ["Every result-changing input is keyed", "Keys are JSON-serialisable", "Prefixes support useful invalidation", "Unrelated detail queries remain untouched"],
+    hints: ["Think of keys as nested cache addresses.", "Objects are valid in keys; functions and component instances are not."],
+    stretch: "Register a global typed query-key structure and make an invalid domain prefix fail TypeScript.",
+  },
+  "dependent-queries": {
+    title: "Fetch invoices only after customer selection", minutes: 28,
+    scenario: "The invoice request requires a customer ID and must not fire with undefined or an empty placeholder.",
+    steps: [
+      "Create selectedCustomerId state and a customer selector with no initial selection.",
+      "Call useQuery unconditionally, include customerId in its key and gate it with enabled.",
+      "Render “Choose a customer” while disabled instead of mislabelling that state as loading.",
+      "Select customer A, then B, then A again and observe separate cache entries and reuse.",
+      "Clear the selection and confirm no invalid request occurs.",
+    ],
+    checks: ["The hook call is unconditional", "No request runs without an ID", "Disabled and pending UI differ", "Each customer has an independent cache entry"],
+    hints: ["enabled describes readiness; it does not remove the hook call.", "Your query function may still need a type-safe way to receive a guaranteed ID."],
+    stretch: "Prefetch invoices when the user hovers a customer option, then measure the perceived change.",
+  },
+  mutations: {
+    title: "Save a payment and refresh every affected view", minutes: 32,
+    scenario: "Creating a payment changes both the payments list and outstanding invoice balances.",
+    steps: [
+      "Create a mock createPayment service that delays, returns the new payment and can reject a duplicate reference.",
+      "Wrap it in useMutation and connect mutateAsync to a form submit handler.",
+      "Disable duplicate submission while pending and show a useful mutation error.",
+      "On success invalidate payments list keys and the affected invoice/list keys.",
+      "Confirm the refreshed UI, then test the rejection path and ensure the form remains available for correction.",
+    ],
+    checks: ["Pending prevents duplicates", "Errors preserve user input", "Success refreshes affected caches", "Unrelated caches remain valid"],
+    hints: ["A mutation is imperative; call it from the user action.", "Invalidate by domain relationship, not simply every query."],
+    stretch: "Apply an optimistic payment row, then roll it back when the mock service rejects.",
+  },
+  context: {
+    title: "Create a safe event-tracking provider", minutes: 28,
+    scenario: "Deep page components need a tracking capability without importing the Pendo client or threading callbacks through every layer.",
+    steps: [
+      "Define a Tracking contract with track(name, details) and create a context whose default is null.",
+      "Create TrackingProvider around a fake analytics client and expose the smallest useful value.",
+      "Create useTracking that throws a clear error when the provider is missing.",
+      "Consume it from a deeply nested InvoiceButton and track invoice_opened with an ID.",
+      "Temporarily remove the provider and confirm the failure points to the missing application boundary.",
+    ],
+    checks: ["Consumers cannot silently receive undefined", "Vendor details stay in the provider", "Event intent stays in the component", "The provider is placed at the narrowest useful scope"],
+    hints: ["The custom consumer hook is where you enforce provider presence.", "Context transports a capability; it does not make all application state global."],
+    stretch: "Split tracking state from tracking actions and inspect which consumers re-render when metadata changes.",
+  },
+  "custom-hooks": {
+    title: "Extract a URL-backed payments filter hook", minutes: 30,
+    scenario: "Two payments pages need the same typed parsing and updating rules for status and date filters.",
+    steps: [
+      "Build the behaviour directly in one component with useSearchParams and verify it first.",
+      "Extract parsePaymentStatus as a pure function with a safe all fallback.",
+      "Create usePaymentsFilter returning the current typed filter plus focused update and clear actions.",
+      "Use the hook from two components and confirm both reflect the same URL state.",
+      "Keep rendering decisions in components; inspect the hook and remove any JSX or page-specific labels.",
+    ],
+    checks: ["Parsing is tested independently", "The hook composes existing hooks", "Its return contract is domain-focused", "The URL remains the shared source"],
+    hints: ["First make the concrete version work; extraction should follow repetition or a clear boundary.", "Two hook calls share data only because both subscribe to router location."],
+    stretch: "Return stable update callbacks only where a consumer can demonstrate identity matters.",
+  },
+  "services-dtos": {
+    title: "Trace an invoice from transport to pixels", minutes: 32,
+    scenario: "The API returns snake_case fields and totals in pence, while the UI expects domain names and pound values.",
+    steps: [
+      "Define InvoiceResponse exactly as transported: invoice_id, total_pence, issued_at and customer_name.",
+      "Define the UI-facing Invoice shape with id, total, issuedAt and customerName.",
+      "Write and unit-test toInvoice before connecting it to any component.",
+      "Make invoiceService.list own HTTP and raw parsing, then transform at the selected DTO boundary.",
+      "Wrap the service with a query hook and render a component that never knows total_pence exists.",
+    ],
+    checks: ["Transport and domain types are distinct", "Conversion happens once", "Components receive domain-friendly values", "One field can be traced through every layer"],
+    hints: ["Name the response type after the external contract, not the screen.", "Choose one transformation boundary and use it consistently across the repo."],
+    stretch: "Handle an unknown status from the server without allowing it into the trusted Invoice type.",
+  },
+  "analytics-async": {
+    title: "Track with latest metadata and a stable API", minutes: 30,
+    scenario: "Tracking calls need the latest account and page metadata without recreating the public track function on every render.",
+    steps: [
+      "Create a provider receiving accountId and pageName and a fake sendEvent transport.",
+      "Store the latest metadata in a ref and update current during provider renders.",
+      "Expose a stable track function that merges current metadata with event-specific details.",
+      "Change pageName, fire an event, and confirm the latest name is sent without a stale closure.",
+      "Make sendEvent reject and verify the primary invoice action still completes.",
+    ],
+    checks: ["Latest metadata is sent", "Metadata changes do not need visual state", "Tracking failures are isolated", "Components pass domain event intent only"],
+    hints: ["The stable function reads metadataRef.current at call time.", "Do not put vendor payload shaping in every button."],
+    stretch: "Add a tiny async-render host that queues a confirmation panel and explain who owns its cleanup.",
+  },
+  rtl: {
+    title: "Test a payment form like a user", minutes: 28,
+    scenario: "The important contract is that invalid payments are explained and valid payments are submitted—not which hooks exist inside.",
+    steps: [
+      "Render a PaymentForm with a mocked onSave and create userEvent inside the test.",
+      "Click Save with empty fields and find the validation message by accessible text or association.",
+      "Fill reference and amount using role/label queries, then submit again.",
+      "Assert onSave receives the expected values and the success message appears asynchronously.",
+      "Refactor one internal component name and confirm the test remains unchanged and passing.",
+    ],
+    checks: ["Queries use accessible roles/names", "Interactions use user-event", "Async UI is awaited", "No internal state or hook is asserted"],
+    hints: ["Use getBy for present elements and findBy for elements that appear asynchronously.", "A failing accessible query may reveal a real labelling issue in the form."],
+    stretch: "Add a keyboard-only path and prove focus moves to the first invalid field.",
+  },
+  "test-data": {
+    title: "Test a routed, queried invoice page", minutes: 35,
+    scenario: "InvoicePage depends on React Router, React Query and a service, so its test needs realistic boundaries without shared cache.",
+    steps: [
+      "Create createAppWrapper with a MemoryRouter initial entry and a fresh QueryClient whose retries are disabled.",
+      "Mock only the invoice service/network boundary with a delayed successful response.",
+      "Render /invoices?status=paid and assert the pending state before awaiting paid rows.",
+      "Create a second test with a rejected response and assert the useful error plus Retry action.",
+      "Prove isolation by changing the mock in a third test and confirming no prior cached rows appear.",
+    ],
+    checks: ["Each test owns a fresh cache", "Router location is realistic", "Service—not hooks—is mocked", "Pending, success and error paths are covered"],
+    hints: ["Construct the QueryClient inside the wrapper factory or each test.", "If data appears before your mock runs, cache is probably leaking."],
+    stretch: "Click a filter and assert both the visible rows and the new MemoryRouter location.",
+  },
+  "trace-change": {
+    title: "Ship a payment-status filter end to end", minutes: 45,
+    scenario: "The production request is: “Let users filter payments by pending, completed or failed, preserve it in the URL, and send it to the API.”",
+    steps: [
+      "Write the user-visible acceptance test first: choose failed, see only failed rows, refresh the location and retain failed.",
+      "Trace the existing page → filter hook → query hook → query key → service path before changing any file; write the file list down.",
+      "Add the typed status to URL parsing and serialisation with a safe fallback for unknown values.",
+      "Include the filter in the query key and service request, then update the mock response for each status.",
+      "Run the focused test, type check and broader suite; manually exercise refresh plus Back/Forward.",
+      "Review the diff and remove any layer changed without a concrete responsibility in the flow.",
+    ],
+    checks: ["URL reproduces the filtered view", "Query caches differ by status", "Service receives the filter", "Feature test proves visible behaviour", "The diff follows existing repo architecture"],
+    hints: ["Start from behaviour and follow data ownership inward; do not begin by inventing a new abstraction.", "A filter missing from the query key can show cached results for the wrong request."],
+    stretch: "Add a second customer filter and prove the key factory scales without duplicating string literals.",
+  },
+};
 
 function LogoMark() {
   return <span className="logo-mark" aria-hidden="true"><span>R</span><i /></span>;
@@ -483,6 +874,7 @@ export default function Home() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [confidence, setConfidence] = useState<Record<string, Confidence>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [labChecks, setLabChecks] = useState<Record<string, boolean[]>>({});
   const [track, setTrack] = useState<Track>("fast");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<ModuleId | "all">("all");
@@ -499,6 +891,7 @@ export default function Home() {
           setAnswers(saved.answers ?? {});
           setConfidence(saved.confidence ?? {});
           setDrafts(saved.drafts ?? {});
+          setLabChecks(saved.labChecks ?? {});
           setTrack(saved.track === "deep" ? "deep" : "fast");
         }
       } catch {
@@ -511,8 +904,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ completed, answers, confidence, drafts, track }));
-  }, [completed, answers, confidence, drafts, track, hydrated]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ completed, answers, confidence, drafts, labChecks, track }));
+  }, [completed, answers, confidence, drafts, labChecks, track, hydrated]);
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
@@ -561,6 +954,7 @@ export default function Home() {
     setAnswers({});
     setConfidence({});
     setDrafts({});
+    setLabChecks({});
   }
 
   return (
@@ -622,9 +1016,15 @@ export default function Home() {
             answer={answers[selected.id]}
             confidence={confidence[selected.id]}
             draft={drafts[selected.id]}
+            labChecks={labChecks[selected.id] ?? []}
             onAnswer={(answer) => setAnswers((current) => ({ ...current, [selected.id]: answer }))}
             onConfidence={(value) => setConfidence((current) => ({ ...current, [selected.id]: value }))}
             onDraft={(value) => setDrafts((current) => ({ ...current, [selected.id]: value }))}
+            onToggleLabCheck={(index) => setLabChecks((current) => {
+              const next = [...(current[selected.id] ?? [])];
+              next[index] = !next[index];
+              return { ...current, [selected.id]: next };
+            })}
             onComplete={() => toggleComplete(selected.id)}
             onBack={() => setScreen("dashboard")}
             onNext={() => {
@@ -738,15 +1138,17 @@ function Dashboard({ progress, completed, nextLesson, track, setTrack, openLesso
   );
 }
 
-function LessonView({ lesson, completed, answer, confidence, draft, onAnswer, onConfidence, onDraft, onComplete, onBack, onNext }: {
+function LessonView({ lesson, completed, answer, confidence, draft, labChecks, onAnswer, onConfidence, onDraft, onToggleLabCheck, onComplete, onBack, onNext }: {
   lesson: Lesson;
   completed: boolean;
   answer?: number;
   confidence?: Confidence;
   draft?: string;
+  labChecks: boolean[];
   onAnswer: (answer: number) => void;
   onConfidence: (value: Confidence) => void;
   onDraft: (value: string) => void;
+  onToggleLabCheck: (index: number) => void;
   onComplete: () => void;
   onBack: () => void;
   onNext: () => void;
@@ -756,7 +1158,9 @@ function LessonView({ lesson, completed, answer, confidence, draft, onAnswer, on
   const isCorrect = answer === lesson.quiz.answer;
   const [copied, setCopied] = useState(false);
   const resources = resourcesFor(lesson);
-  const workingCode = draft ?? lesson.react;
+  const lab = labs[lesson.id];
+  const starterCode = `// ${lab.title}\n// Follow the numbered build guide. Write the first small step below.\n\n`;
+  const workingCode = draft ?? starterCode;
 
   async function copyWorkingCode() {
     await navigator.clipboard.writeText(workingCode);
@@ -785,21 +1189,36 @@ function LessonView({ lesson, completed, answer, confidence, draft, onAnswer, on
         <aside className="watch-box"><span>!</span><div><strong>Watch for this</strong><p>{lesson.watch}</p></div></aside>
 
         <section className="workbench">
-          <div className="workbench-heading"><div><span>04 · DO IT NOW</span><h2>Build the proof, not just the memory.</h2><p>{labBrief(lesson)}</p></div><b>{lesson.duration < 25 ? "10–15" : "15–25"}<small>min lab</small></b></div>
-          <div className="lab-grid">
-            <div className="lab-brief">
-              <strong>Definition of done</strong>
+          <div className="workbench-heading"><div><span>04 · GUIDED WORKSHOP</span><h2>{lab.title}</h2><p>{lab.scenario}</p></div><b>{lab.minutes}<small>guided minutes</small></b></div>
+          <div className="lab-guide">
+            <div className="lab-steps">
+              <div><strong>Build it step by step</strong><small>Do one small step, check it, then continue.</small></div>
               <ol>
-                {lesson.outcomes.map((outcome) => <li key={outcome}><span>□</span>{outcome}</li>)}
+                {lab.steps.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, "0")}</span><p>{step}</p></li>)}
               </ol>
-              <p><b>Rule:</b> close the finished example above and recreate the idea from memory. Being stuck is the useful part.</p>
             </div>
+            <aside className="lab-coach">
+              <strong>How to work this lab</strong>
+              <p>Type the solution yourself in the workbench. Run after every step. If you are stuck for five minutes, open one hint—not the finished example.</p>
+              <details><summary>Need a nudge? <span>Show hints</span></summary><ul>{lab.hints.map((hint) => <li key={hint}>{hint}</li>)}</ul></details>
+              <div><b>Stretch when green</b><p>{lab.stretch}</p></div>
+            </aside>
+          </div>
+          <div className="lab-grid">
             <div className="editor-shell">
-              <div><span>YOUR SCRATCHPAD</span><div><button onClick={() => onDraft(lesson.react)}>Reset</button><button onClick={copyWorkingCode}>{copied ? "Copied" : "Copy"}</button></div></div>
+              <div><span>YOUR WORKING CODE</span><div><button onClick={() => onDraft(starterCode)}>Reset</button><button onClick={copyWorkingCode}>{copied ? "Copied" : "Copy"}</button></div></div>
               <textarea value={workingCode} onChange={(event) => onDraft(event.target.value)} spellCheck={false} aria-label={`Code scratchpad for ${lesson.title}`} />
             </div>
+            <div className="lab-brief">
+              <strong>Finish line</strong>
+              <p className="check-intro">Check these from the running result—not from what you intended the code to do.</p>
+              <ol>
+                {lab.checks.map((check, index) => <li key={check}><button className={labChecks[index] ? "checked" : ""} onClick={() => onToggleLabCheck(index)} aria-pressed={Boolean(labChecks[index])}><span>{labChecks[index] ? "✓" : ""}</span>{check}</button></li>)}
+              </ol>
+              <p><b>Complete when:</b> every finish-line check passes and you can explain the core choice without reading the lesson.</p>
+            </div>
           </div>
-          <a className="launch-lab" href={practiceLinks[lesson.module].url} target="_blank" rel="noreferrer">Launch a browser workbench <span>↗</span></a>
+          <a className="launch-lab" href={practiceLinks[lesson.module].url} target="_blank" rel="noreferrer">Launch the working environment, then follow the guide above <span>↗</span></a>
         </section>
 
         <section className="resources-section">
